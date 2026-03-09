@@ -575,49 +575,7 @@
     border-color: var(--accent);
   }
 
-  /* ============================================================
-     PHOTO UPLOAD
-  ============================================================ */
-  .photo-upload {
-    border: 2px dashed var(--border);
-    border-radius: 12px;
-    padding: 24px;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    position: relative;
-    overflow: hidden;
-    background: rgba(255,255,255,0.5);
-  }
 
-  .photo-upload:hover {
-    border-color: var(--accent);
-    background: rgba(33,150,243,0.04);
-  }
-
-  .photo-upload input { display: none; }
-
-  .photo-upload .icon {
-    font-size: 36px;
-    margin-bottom: 8px;
-  }
-
-  .photo-upload .label {
-    font-size: 14px;
-    color: var(--text-muted);
-  }
-
-  .photo-upload img {
-    max-width: 100%;
-    max-height: 200px;
-    border-radius: 8px;
-    margin-top: 12px;
-  }
-
-  .photo-upload.has-photo {
-    border-color: var(--green);
-    background: rgba(76,175,80,0.05);
-  }
 
   /* ============================================================
      PH DISPLAY
@@ -688,16 +646,7 @@
     border-bottom: none;
   }
 
-  .photo-thumb {
-    width: 60px;
-    height: 60px;
-    object-fit: cover;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: opacity 0.15s;
-  }
 
-  .photo-thumb:hover { opacity: 0.85; }
 
   /* ============================================================
      MONDAY STATUS
@@ -997,10 +946,7 @@ const VITAL_CITRIC_GROUP = 'group_mm17brcp';       // "Citric acid" group
 const VITAL_BOXES_COL = 'numeric_mm16yt4m';        // "Boxes" number column
 const VITAL_BAGS_COL = 'numeric_mm17bhbw';         // "Bags" number column
 
-// File column IDs on Aldous board
-const ALDOUS_BIOMASS_PHOTO_COL = 'file_mm16eqyx';  // "Biomass Boxes photo"
-const ALDOUS_PH_PHOTO_COL = 'file_mm16rne3';       // "PH meter Photo"
-const MONDAY_FILE_URL = 'https://api.monday.com/v2/file';
+
 
 // ==================== OPERATOR CODES ====================
 const OPERATOR_CODES = {
@@ -1040,13 +986,7 @@ const STEPS = [
     type: 'confirm',
     field: 'initialCitricAdded',
   },
-  {
-    id: 'photo_boxes',
-    title: 'Photo: Biomass Boxes',
-    desc: 'Take a photo of the <strong>7 boxes of biomass</strong> BEFORE loading them into the LETINA A. This photo is required to proceed.',
-    type: 'photo',
-    field: 'biomassBoxesPhoto',
-  },
+
   {
     id: 'biomass',
     title: 'Load Biomass into LETINA A',
@@ -1061,13 +1001,7 @@ const STEPS = [
     type: 'ph',
     field: 'phReadings',
   },
-  {
-    id: 'photo_ph',
-    title: 'Photo: pH Meter Reading',
-    desc: 'Take a photo of the <strong>pH meter</strong> showing the final reading of 3.0 or lower. This photo is required to proceed.',
-    type: 'photo',
-    field: 'phMeterPhoto',
-  },
+
   {
     id: 'pump',
     title: 'Pump Batch Into System',
@@ -1231,12 +1165,12 @@ function startNewBatch() {
     status: 'in-progress',
     waterAdded: false,
     initialCitricAdded: false,
-    biomassBoxesPhoto: null,
+
     biomassLoaded: false,
     phReadings: [],
     additionalCitricBags: 0,
     finalPh: null,
-    phMeterPhoto: null,
+
     pumpComplete: false,
     mondayItemId: null,
     aldousItemId: null,
@@ -1279,26 +1213,6 @@ function renderStep() {
         <div class="step-actions">
           <button class="btn btn-green btn-block btn-lg" onclick="confirmStep()">
             &#10003; Confirm Completed
-          </button>
-        </div>
-      </div>
-    `;
-  } else if (step.type === 'photo') {
-    const existing = state.currentBatch[step.field];
-    container.innerHTML = `
-      <div class="step-card active">
-        <div class="step-number">${state.currentStep + 1}</div>
-        <div class="step-title">${step.title}</div>
-        <div class="step-desc">${step.desc}</div>
-        <div class="photo-upload ${existing ? 'has-photo' : ''}" onclick="document.getElementById('photoInput').click()">
-          <input type="file" id="photoInput" accept="image/*" capture="environment" onchange="handlePhoto(event, '${step.field}')">
-          <div class="icon">${existing ? '&#10003;' : '&#128247;'}</div>
-          <div class="label">${existing ? 'Photo captured! Tap to retake.' : 'Tap to take photo or upload'}</div>
-          ${existing ? `<img src="${existing}" alt="captured photo">` : ''}
-        </div>
-        <div class="step-actions">
-          <button class="btn btn-green btn-block btn-lg" onclick="confirmStep()" ${!existing ? 'disabled' : ''} id="photoNextBtn">
-            &#10003; Continue
           </button>
         </div>
       </div>
@@ -1370,17 +1284,6 @@ function confirmStep() {
   renderStep();
 }
 
-function handlePhoto(event, field) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    state.currentBatch[field] = e.target.result;
-    renderStep();
-  };
-  reader.readAsDataURL(file);
-}
-
 function recordPh() {
   const input = document.getElementById('phInput');
   const val = parseFloat(input.value);
@@ -1423,17 +1326,10 @@ function showBatchSummary() {
     <tr><td>Total Citric Acid</td><td>${totalCitric} bag(s)</td></tr>
     <tr><td>pH Readings</td><td style="font-family:monospace;">${phLog}</td></tr>
     <tr><td>Final pH</td><td><strong style="color:var(--green-dark);">${b.finalPh}</strong></td></tr>
-    <tr><td>Biomass Boxes Photo</td><td>${b.biomassBoxesPhoto ? '<img class="photo-thumb" src="'+b.biomassBoxesPhoto+'" onclick="openPhoto(this.src)">' : 'Missing'}</td></tr>
-    <tr><td>pH Meter Photo</td><td>${b.phMeterPhoto ? '<img class="photo-thumb" src="'+b.phMeterPhoto+'" onclick="openPhoto(this.src)">' : 'Missing'}</td></tr>
     <tr><td>Pumped to System</td><td>&#10003; Yes</td></tr>
   `;
 
   showScreen('summaryScreen');
-}
-
-function openPhoto(src) {
-  const w = window.open();
-  w.document.write(`<img src="${src}" style="max-width:100%; max-height:100vh;">`);
 }
 
 // ==================== MONDAY.COM API SUBMISSION ====================
@@ -1565,77 +1461,6 @@ function submitToVitalSupplies(batch) {
   });
 }
 
-// ==================== FILE UPLOAD ====================
-function dataURLtoBlob(dataURL) {
-  var parts = dataURL.split(',');
-  var mime = parts[0].match(/:(.*?);/)[1];
-  var bstr = atob(parts[1]);
-  var n = bstr.length;
-  var u8arr = new Uint8Array(n);
-  while (n--) { u8arr[n] = bstr.charCodeAt(n); }
-  return new Blob([u8arr], { type: mime });
-}
-
-function uploadFileToMonday(itemId, columnId, dataURL, filename) {
-  if (!dataURL) return Promise.resolve({ success: false, error: 'No photo data' });
-
-  var blob = dataURLtoBlob(dataURL);
-  var ext = blob.type === 'image/png' ? '.png' : '.jpg';
-  var fullFilename = filename + ext;
-
-  var query = 'mutation ($file: File!) { add_file_to_column (item_id: ' + itemId + ', column_id: "' + columnId + '", file: $file) { id } }';
-
-  var formData = new FormData();
-  formData.append('query', query);
-  formData.append('variables[file]', blob, fullFilename);
-
-  return fetch(MONDAY_FILE_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': MONDAY_API_TOKEN
-    },
-    body: formData
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (data.data && data.data.add_file_to_column && data.data.add_file_to_column.id) {
-      console.log('File uploaded to column ' + columnId + ':', data.data.add_file_to_column.id);
-      return { success: true, id: data.data.add_file_to_column.id };
-    } else {
-      console.warn('File upload response:', JSON.stringify(data));
-      return { success: false, error: data.errors ? data.errors[0].message : (data.error_message || 'Unknown error') };
-    }
-  })
-  .catch(function(err) {
-    console.error('File upload error:', err);
-    return { success: false, error: err.message };
-  });
-}
-
-function uploadBatchPhotos(itemId, batch) {
-  var uploads = [];
-
-  if (batch.biomassBoxesPhoto) {
-    uploads.push(
-      uploadFileToMonday(itemId, ALDOUS_BIOMASS_PHOTO_COL, batch.biomassBoxesPhoto, batch.name.replace(/[\/\.]/g, '-') + '-biomass-boxes')
-    );
-  }
-
-  if (batch.phMeterPhoto) {
-    uploads.push(
-      uploadFileToMonday(itemId, ALDOUS_PH_PHOTO_COL, batch.phMeterPhoto, batch.name.replace(/[\/\.]/g, '-') + '-ph-meter')
-    );
-  }
-
-  if (uploads.length === 0) return Promise.resolve({ success: true, uploaded: 0 });
-
-  return Promise.allSettled(uploads).then(function(results) {
-    var successes = results.filter(function(r) { return r.status === 'fulfilled' && r.value.success; }).length;
-    var failures = results.filter(function(r) { return r.status !== 'fulfilled' || !r.value.success; }).length;
-    return { success: failures === 0, uploaded: successes, failed: failures };
-  });
-}
-
 function submitToAldousBoard(batch) {
   var columnValues = JSON.stringify({
     "date4": { "date": batch.date },
@@ -1719,37 +1544,13 @@ function completeBatch() {
       updateMondayStatus('error', 'Partial sync — ' + failedBoard + ' failed: ' + failError);
       showToast('Partial Monday.com sync. Retry recommended.', 'error');
       document.getElementById('retryMondayBtn').style.display = '';
-      // Still try to upload photos if Aldous item was created
     }
 
-    // Upload photos to Aldous board if item was created
-    if (aldousResult.success && (batch.biomassBoxesPhoto || batch.phMeterPhoto)) {
-      updateMondayStatus('submitting', 'Uploading photos to Monday.com...');
-      uploadBatchPhotos(aldousResult.id, batch).then(function(photoResult) {
-        if (photoResult.success) {
-          batch.photosUploaded = true;
-          var msg = 'Synced to Monday.com';
-          if (prodResult.success) msg += ' (Production #' + prodResult.id + ')';
-          msg += ' — Aldous #' + aldousResult.id + ' with ' + photoResult.uploaded + ' photo(s)';
-          updateMondayStatus('success', msg);
-          showToast('Batch & photos synced to Monday.com!', 'success');
-        } else {
-          batch.photosUploaded = false;
-          var msg = 'Items created but ' + photoResult.failed + ' photo(s) failed to upload';
-          updateMondayStatus('error', msg);
-          showToast('Photos failed to upload. Retry available.', 'error');
-          document.getElementById('retryMondayBtn').style.display = '';
-        }
-        finalizeBatch();
-      });
-    } else {
-      // No photos to upload or Aldous failed
-      if (prodResult.success && aldousResult.success) {
-        updateMondayStatus('success', 'Synced to Monday.com (Production #' + prodResult.id + ', Aldous #' + aldousResult.id + ')');
-        showToast('Batch saved & synced to Monday.com!', 'success');
-      }
-      finalizeBatch();
+    if (prodResult.success && aldousResult.success) {
+      updateMondayStatus('success', 'Synced to Monday.com (Production #' + prodResult.id + ', Aldous #' + aldousResult.id + ')');
+      showToast('Batch saved & synced to Monday.com!', 'success');
     }
+    finalizeBatch();
   });
 }
 
@@ -1787,24 +1588,8 @@ function retryMondaySubmit() {
       return;
     }
 
-    // Both items exist — now retry photos if needed
-    if (!batch.photosUploaded && aldousResult.id && (batch.biomassBoxesPhoto || batch.phMeterPhoto)) {
-      updateMondayStatus('submitting', 'Uploading photos to Monday.com...');
-      uploadBatchPhotos(aldousResult.id, batch).then(function(photoResult) {
-        if (photoResult.success) {
-          batch.photosUploaded = true;
-          updateMondayStatus('success', 'Synced to Monday.com (Production #' + prodResult.id + ', Aldous #' + aldousResult.id + ') with ' + photoResult.uploaded + ' photo(s)');
-          showToast('Monday.com sync successful with photos!', 'success');
-        } else {
-          updateMondayStatus('error', 'Items synced but ' + photoResult.failed + ' photo(s) failed');
-          showToast('Photo upload failed. Try again.', 'error');
-          document.getElementById('retryMondayBtn').style.display = '';
-        }
-      });
-    } else {
-      updateMondayStatus('success', 'Synced to Monday.com (Production #' + prodResult.id + ', Aldous #' + aldousResult.id + ')');
-      showToast('Monday.com sync successful!', 'success');
-    }
+    updateMondayStatus('success', 'Synced to Monday.com (Production #' + prodResult.id + ', Aldous #' + aldousResult.id + ')');
+    showToast('Monday.com sync successful!', 'success');
   });
 }
 
@@ -1839,8 +1624,7 @@ function exportCSV() {
     ['pH Readings', b.phReadings.join(' > ')],
     ['Final pH', b.finalPh],
     ['Pump Complete', 'Yes'],
-    ['Biomass Photo Taken', b.biomassBoxesPhoto ? 'Yes' : 'No'],
-    ['pH Photo Taken', b.phMeterPhoto ? 'Yes' : 'No'],
+
     ['Monday.com Production Item', b.mondayItemId || 'N/A'],
     ['Monday.com Aldous Item', b.aldousItemId || 'N/A'],
   ];
