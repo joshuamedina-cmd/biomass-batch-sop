@@ -807,7 +807,7 @@
   <!-- ============================================================
        LOGIN SCREEN
   ============================================================ -->
-  <div class="login-screen active" id="loginScreen">
+  <div class="login-screen" id="loginScreen" style="display:none!important">
     <div class="login-card">
       <div class="login-logo">
         <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Biomass">
@@ -831,7 +831,7 @@
   <!-- ============================================================
        DASHBOARD
   ============================================================ -->
-  <div class="screen" id="dashboardScreen">
+  <div class="screen active" id="dashboardScreen">
     <div class="container">
       <div class="page-header-card">
         <h2>Dashboard</h2>
@@ -1101,15 +1101,8 @@ function login() {
 }
 
 function logout() {
-  if (confirm('Clock out and return to login?')) {
-    state.operator = null;
-    state.currentBatch = null;
-    state.currentStep = 0;
-    document.getElementById('operatorCode').value = '';
-    document.getElementById('loginError').style.display = 'none';
-    document.getElementById('operatorBadge').style.display = 'none';
-    showScreen('loginScreen');
-  }
+  window.location.href = "https://kmjz-master-hub.vercel.app";
+}
 }
 
 // Auto-login on 4-char input
@@ -1652,5 +1645,28 @@ function exportCSV() {
 }
 </script>
 
+
+<script>
+// === AUTO-SET OPERATOR FROM LOCALSTORAGE (no code wall) ===
+(function() {
+  var name = null;
+  try { name = localStorage.getItem('kmjz_operator_name'); } catch(e) {}
+  if (name) {
+    if (typeof currentOperator !== 'undefined') currentOperator = name;
+    window._autoOperator = name;
+  }
+  // Update operator badge/name elements
+  var badge = document.getElementById('operatorName');
+  if (badge && name) badge.textContent = name;
+  // Hide login, show app
+  var login = document.getElementById('loginScreen');
+  if (login) login.style.display = 'none';
+  var app = document.getElementById('mainApp') || document.getElementById('appContent');
+  if (app) app.style.display = '';
+  // Show header if hidden
+  var header = document.getElementById('appHeader');
+  if (header) header.style.display = '';
+})();
+</script>
 </body>
 </html>
