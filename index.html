@@ -1060,31 +1060,35 @@ function formatTime(date) {
 }
 
 function fmtDate(dtStr) {
-  if (!dtStr) return '';
   const d = new Date(dtStr);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-// ==================== LOGIN ====================
+function fmtTime(dtStr) {
+  const d = new Date(dtStr);
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ==================== AUTH ====================
 function login() {
   const code = document.getElementById('operatorCode').value.trim();
   const name = OPERATOR_CODES[code];
-  const errEl = document.getElementById('loginError');
   if (!name) {
+    const errEl = document.getElementById('loginError');
     errEl.textContent = 'Invalid operator code. Please try again.';
     errEl.style.display = 'block';
     document.getElementById('operatorCode').value = '';
     document.getElementById('operatorCode').focus();
     return;
   }
-  errEl.style.display = 'none';
   state.operator = name;
+  localStorage.setItem('operatorName', name);
   document.getElementById('headerName').textContent = name;
   document.getElementById('headerAvatar').textContent = name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
   document.getElementById('operatorBadge').style.display = 'flex';
   showScreen('dashboardScreen');
   updateDashboard();
-  showToast('Welcome, ' + name + '! 🌿', 'success');
+  showToast('Welcome, ' + name + '!', 'success');
 }
 
 function logout() {
@@ -1092,12 +1096,31 @@ function logout() {
   state.batches = [];
   state.currentBatch = null;
   state.currentStep = 0;
+  localStorage.removeItem('operatorName');
   document.getElementById('operatorCode').value = '';
+  document.getElementById('loginError').style.display = 'none';
   document.getElementById('operatorBadge').style.display = 'none';
   showScreen('loginScreen');
 }
 
-// Auto-submit on 4 digits
+// ==================== AUTO-LOGIN FROM HUB ====================
+// If operator name already stored in localStorage (set by hub/kiosk),
+// skip the login screen and go straight to dashboard.
+function autoLoginFromHub() {
+  const savedName = localStorage.getItem('operatorName');
+  if (savedName) {
+    state.operator = savedName;
+    document.getElementById('headerName').textContent = savedName;
+    document.getElementById('headerAvatar').textContent = savedName.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
+    document.getElementById('operatorBadge').style.display = 'flex';
+    showScreen('dashboardScreen');
+    updateDashboard();
+    // showToast intentionally omitted — silent auto-login
+  }
+  // If no name in localStorage, login screen stays visible (default state)
+}
+
+// Auto-submit login on 4-digit entry
 document.getElementById('operatorCode').addEventListener('input', function() {
   if (this.value.length === 4) login();
 });
@@ -1107,447 +1130,430 @@ document.getElementById('operatorCode').addEventListener('keydown', function(e) 
 
 // ==================== DASHBOARD ====================
 function updateDashboard() {
-  const completed = state.batches.filter(b => b.status === 'completed');
-  document.getElementById('statTotal').textContent = state.batches.length;
+  const headerDateEl = document.getElementById('headerDate');
+  if (headerDateEl) {
+    const now = new Date();
+    headerDateEl.textContent = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  const today = getDateString();
+  const todayBatches = state.batches.filter(b => b.date === today);
+
+  document.getElementById('statTotal').textContent = todayBatches.length;
+  const completed = todayBatches.filter(b => b.status === 'completed');
   document.getElementById('statCompleted').textContent = completed.length;
 
-  const phVals = completed.filter(b => b.finalPh).map(b => parseFloat(b.finalPh));
+  const phVals = completed
+    .map(b => b.phReadings && b.phReadings.length ? b.phReadings[b.phReadings.length-1] : null)
+    .filter(v => v !== null);
   document.getElementById('statAvgPh').textContent = phVals.length
     ? (phVals.reduce((a,b)=>a+b,0)/phVals.length).toFixed(2)
     : '--';
 
-  const list = document.getElementById('batchList');
-  if (!state.batches.length) {
-    list.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding:32px; font-size:14px;">No batches yet. Click "+ New Batch" to start.</p>';
+  const listEl = document.getElementById('batchList');
+  if (todayBatches.length === 0) {
+    listEl.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding:32px; font-size:14px;">No batches yet. Click "+ New Batch" to start.</p>';
     return;
   }
-  list.innerHTML = [...state.batches].reverse().map(b => `
+  listEl.innerHTML = todayBatches.slice().reverse().map(b => `
     <div class="batch-list-item">
       <div>
         <div class="batch-id">${b.name}</div>
-        <div class="batch-meta">${formatTime(new Date(b.startTime))} &bull; ${b.operator}</div>
+        <div class="batch-meta">${fmtDate(b.startTime)} &bull; Started ${fmtTime(b.startTime)}</div>
       </div>
       <span class="batch-status ${b.status === 'completed' ? 'completed' : 'in-progress'}">
-        ${b.status === 'completed' ? 'Done' : 'In Progress'}
+        ${b.status === 'completed' ? 'Completed' : 'In Progress'}
       </span>
     </div>
   `).join('');
 }
 
-// ==================== NEW BATCH ====================
+// ==================== BATCH ====================
 function startNewBatch() {
-  const batch = {
+  state.currentBatch = {
     name: generateBatchName(),
-    operator: state.operator,
+    date: getDateString(),
     startTime: new Date().toISOString(),
+    operator: state.operator,
+    waterAdded: false,
+    initialCitricAdded: false,
+    biomassLoaded: false,
+    phReadings: [],
+    citricBagsAdded: 0,
+    pumpComplete: false,
     status: 'in-progress',
-    data: {},
-    finalPh: null,
   };
-  state.batches.push(batch);
-  state.currentBatch = batch;
   state.currentStep = 0;
-  document.getElementById('sopBatchName').textContent = batch.name;
-  renderSopProgress();
-  renderStep(0);
+  state.batches.push(state.currentBatch);
+  document.getElementById('sopBatchName').textContent = state.currentBatch.name;
   showScreen('sopScreen');
+  renderStep();
 }
 
 function cancelBatch() {
   if (!confirm('Cancel this batch? All progress will be lost.')) return;
-  const idx = state.batches.indexOf(state.currentBatch);
-  if (idx !== -1) state.batches.splice(idx, 1);
+  state.batches = state.batches.filter(b => b !== state.currentBatch);
   state.currentBatch = null;
   showScreen('dashboardScreen');
   updateDashboard();
 }
 
-// ==================== SOP RENDERING ====================
-function renderSopProgress() {
-  const prog = document.getElementById('sopProgress');
-  prog.innerHTML = STEPS.slice(0,-1).map((s,i) => {
-    let cls = '';
-    if (i < state.currentStep) cls = 'done';
-    else if (i === state.currentStep) cls = 'active';
-    return `<div class="step-dot ${cls}"></div>`;
+// ==================== SOP STEPS ====================
+function renderStep() {
+  const step = STEPS[state.currentStep];
+  const progress = document.getElementById('sopProgress');
+  progress.innerHTML = STEPS.slice(0,-1).map((s,i) => {
+    let cls = 'step-dot';
+    if (i < state.currentStep) cls += ' done';
+    else if (i === state.currentStep) cls += ' active';
+    return `<div class="${cls}"></div>`;
   }).join('');
-}
 
-function renderStep(idx) {
-  const step = STEPS[idx];
   const container = document.getElementById('sopStepContainer');
 
-  if (step.type === 'final') {
-    showSummary();
-    return;
-  }
-
-  let body = '';
-
   if (step.type === 'confirm') {
-    body = `
-      <div style="margin-top:8px;">
-        <button class="btn btn-green btn-block btn-lg" onclick="confirmStep()">
-          &#10003; Confirm Complete
-        </button>
+    container.innerHTML = `
+      <div class="step-card active">
+        <div class="step-number">${state.currentStep + 1}</div>
+        <div class="step-title">${step.title}</div>
+        <div class="step-desc">${step.desc}</div>
+        <div class="step-actions">
+          <button class="btn btn-green btn-lg" onclick="confirmStep()">&#10003; Confirm Complete</button>
+        </div>
       </div>
     `;
+  } else if (step.type === 'ph') {
+    renderPhStep();
+  } else if (step.type === 'final') {
+    showSummary();
+  }
+}
+
+function confirmStep() {
+  const step = STEPS[state.currentStep];
+  state.currentBatch[step.field] = true;
+  state.currentStep++;
+  renderStep();
+}
+
+// ==================== PH STEP ====================
+function renderPhStep() {
+  const readings = state.currentBatch.phReadings;
+  const lastPh = readings.length ? readings[readings.length-1] : null;
+  const atTarget = lastPh !== null && lastPh <= 3.0;
+  const bags = state.currentBatch.citricBagsAdded;
+
+  let phDisplayClass = 'neutral';
+  let phDisplayText = '--';
+  if (lastPh !== null) {
+    phDisplayText = lastPh.toFixed(2);
+    phDisplayClass = lastPh > 3.0 ? 'high' : 'target';
   }
 
-  if (step.type === 'ph') {
-    const readings = state.currentBatch.data.phReadings || [];
-    const lastPh = readings.length ? readings[readings.length-1].value : null;
-    const phClass = !lastPh ? 'neutral' : lastPh <= 3.0 ? 'target' : 'high';
-    const phLabel = !lastPh ? '--' : lastPh.toFixed(2);
-    const citricCount = readings.filter(r => r.citricAdded).length;
+  const readingHistory = readings.map((r,i) => `
+    <tr>
+      <td>Reading ${i+1}</td>
+      <td style="color: ${r > 3.0 ? 'var(--red)' : 'var(--green-dark)'}; font-weight:700;">${r.toFixed(2)}</td>
+    </tr>
+  `).join('');
 
-    body = `
-      <div class="ph-display ${phClass}" id="phDisplay">${phLabel}</div>
-      <div class="ph-input-row">
-        <input type="number" id="phInput" step="0.01" min="0" max="14" placeholder="e.g. 3.5">
-        <button class="btn btn-accent" onclick="recordPh(false)">Record pH</button>
-      </div>
-      ${lastPh && lastPh > 3.0 ? `
-        <div style="margin-top:16px; padding:12px 16px; background:#fff8e1; border-radius:10px; font-size:14px; color:var(--orange-dark); font-weight:600;">
-          ⚠️ pH is above 3.0 — add citric acid before re-checking
-        </div>
-        <div style="margin-top:12px;">
-          <button class="btn btn-orange btn-block" onclick="recordPh(true)">+ Add Citric Acid &amp; Re-check</button>
-        </div>
-      ` : ''}
-      ${lastPh && lastPh <= 3.0 ? `
-        <div style="margin-top:16px; padding:12px 16px; background:#e8f5e9; border-radius:10px; font-size:14px; color:var(--green-dark); font-weight:600;">
-          ✅ pH is at target (≤ 3.0)
-        </div>
-        <div style="margin-top:12px;">
-          <button class="btn btn-green btn-block btn-lg" onclick="advanceStep()">
-            &#10003; pH Confirmed — Continue
-          </button>
-        </div>
-      ` : ''}
-      ${citricCount > 0 ? `<div style="margin-top:10px; font-size:12px; color:var(--text-muted); text-align:center;">${citricCount} extra bag${citricCount>1?'s':''} of citric acid added</div>` : ''}
-    `;
-  }
-
-  container.innerHTML = `
+  document.getElementById('sopStepContainer').innerHTML = `
     <div class="step-card active">
-      <div class="step-number">${idx + 1}</div>
-      <div class="step-title">${step.title}</div>
-      <div class="step-desc">${step.desc}</div>
-      ${body}
+      <div class="step-number">${state.currentStep + 1}</div>
+      <div class="step-title">Check &amp; Adjust pH</div>
+      <div class="step-desc">Target pH: <strong>&le; 3.0</strong>. Citric bags added so far: <strong>${bags}</strong></div>
+
+      <div class="ph-display ${phDisplayClass}">${phDisplayText}</div>
+
+      <div class="ph-input-row">
+        <input type="number" id="phInput" min="0" max="14" step="0.01" placeholder="e.g. 3.5">
+        <button class="btn btn-accent" onclick="recordPh()">Record pH</button>
+      </div>
+
+      ${readings.length > 0 ? `
+        <table class="summary-table" style="margin-top:16px;">
+          <tr><th colspan="2" style="text-align:left; padding:8px 16px; font-size:11px; color:var(--text-muted); text-transform:uppercase;">pH History</th></tr>
+          ${readingHistory}
+        </table>
+      ` : ''}
+
+      ${atTarget ? `
+        <div class="step-actions" style="margin-top:24px;">
+          <button class="btn btn-green btn-lg" onclick="advanceFromPh()">&#10003; pH OK — Continue</button>
+        </div>
+      ` : (lastPh !== null ? `
+        <div style="margin-top:16px; padding:14px; background:#fff8e1; border-radius:10px; font-size:14px; color:var(--orange-dark);">
+          pH is above 3.0. Add another bag of citric acid, stir, and re-check.
+        </div>
+        <div class="step-actions" style="margin-top:16px;">
+          <button class="btn btn-orange" onclick="addCitricBag()">+ Add Citric Bag (${bags + 1} total)</button>
+        </div>
+      ` : '')}
     </div>
   `;
 
-  // Auto-focus pH input
-  if (step.type === 'ph') {
-    const inp = document.getElementById('phInput');
-    if (inp) inp.focus();
+  const phInput = document.getElementById('phInput');
+  if (phInput) {
+    phInput.addEventListener('keydown', e => { if (e.key === 'Enter') recordPh(); });
+    phInput.focus();
   }
 }
 
-// ==================== STEP ACTIONS ====================
-function confirmStep() {
-  const step = STEPS[state.currentStep];
-  state.currentBatch.data[step.field] = true;
-  advanceStep();
-}
-
-function advanceStep() {
-  state.currentStep++;
-  renderSopProgress();
-  renderStep(state.currentStep);
-  window.scrollTo(0,0);
-}
-
-function recordPh(withCitric) {
-  const inp = document.getElementById('phInput');
-  const val = parseFloat(inp.value);
+function recordPh() {
+  const val = parseFloat(document.getElementById('phInput').value);
   if (isNaN(val) || val < 0 || val > 14) {
     showToast('Enter a valid pH (0–14)', 'error');
     return;
   }
-  if (!state.currentBatch.data.phReadings) state.currentBatch.data.phReadings = [];
-  state.currentBatch.data.phReadings.push({
-    value: val,
-    citricAdded: withCitric,
-    time: new Date().toISOString(),
-  });
-  state.currentBatch.finalPh = val;
-  renderStep(state.currentStep); // re-render
+  state.currentBatch.phReadings.push(val);
+  renderPhStep();
+}
+
+function addCitricBag() {
+  state.currentBatch.citricBagsAdded++;
+  renderPhStep();
+}
+
+function advanceFromPh() {
+  state.currentBatch[STEPS[state.currentStep].field] = state.currentBatch.phReadings;
+  state.currentStep++;
+  renderStep();
 }
 
 // ==================== SUMMARY ====================
 function showSummary() {
   const b = state.currentBatch;
+  showScreen('summaryScreen');
   document.getElementById('summaryBatchId').textContent = b.name;
-
-  const phReadings = b.data.phReadings || [];
-  const extraCitric = phReadings.filter(r => r.citricAdded).length;
-  const finalPh = b.finalPh ? b.finalPh.toFixed(2) : 'N/A';
 
   const rows = [
     ['Batch ID', b.name],
     ['Operator', b.operator],
-    ['Start Time', formatTime(new Date(b.startTime))],
-    ['Water Added', b.data.waterAdded ? '500 gal ✓' : 'Not confirmed'],
-    ['Initial Citric Acid', b.data.initialCitricAdded ? '1 bag ✓' : 'Not confirmed'],
-    ['Biomass Loaded', b.data.biomassLoaded ? '7 boxes ✓' : 'Not confirmed'],
-    ['Final pH', finalPh],
-    ['Extra Citric Bags', extraCitric || 0],
-    ['Total Citric Used', (1 + extraCitric) + ' bag(s)'],
-    ['Pump Complete', b.data.pumpComplete ? '✓' : 'Pending'],
+    ['Date', fmtDate(b.startTime)],
+    ['Start Time', fmtTime(b.startTime)],
+    ['Water Added', b.waterAdded ? '500 gal ✓' : '—'],
+    ['Initial Citric Acid', b.initialCitricAdded ? '1 bag ✓' : '—'],
+    ['Additional Citric Bags', b.citricBagsAdded],
+    ['Total Citric Bags', 1 + b.citricBagsAdded],
+    ['Biomass Loaded', b.biomassLoaded ? '7 boxes ✓' : '—'],
+    ['pH Readings', b.phReadings.map(r => r.toFixed(2)).join(', ') || '—'],
+    ['Final pH', b.phReadings.length ? b.phReadings[b.phReadings.length-1].toFixed(2) : '—'],
+    ['Pump Complete', b.pumpComplete ? '✓' : '—'],
   ];
 
   document.getElementById('summaryTable').innerHTML = rows.map(([k,v]) =>
     `<tr><td>${k}</td><td>${v}</td></tr>`
   ).join('');
-
-  document.getElementById('retryMondayBtn').style.display = 'none';
-  document.getElementById('completeBatchBtn').disabled = false;
-  document.getElementById('postCompleteActions').style.display = 'none';
-
-  showScreen('summaryScreen');
 }
 
-// ==================== MONDAY.COM SUBMIT ====================
-async function submitToMonday(batch) {
+// ==================== COMPLETE BATCH ====================
+function completeBatch() {
+  const b = state.currentBatch;
+  b.status = 'completed';
+  b.endTime = new Date().toISOString();
+  state._lastCompleted = b;
+
+  // Monday.com submission
+  submitToMonday(b);
+  // Supply deduction
+  deductSupplies(b);
+
+  document.getElementById('completeBatchBtn').style.display = 'none';
+  document.getElementById('postCompleteActions').style.display = 'block';
+  updateDashboard();
+}
+
+// ==================== MONDAY.COM SUBMISSION ====================
+async function submitToMonday(b) {
   const statusEl = document.getElementById('mondayStatus');
   statusEl.className = 'monday-status submitting';
-  statusEl.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;margin-right:6px;"></span> Submitting to Monday.com…';
+  statusEl.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:8px;"></span>Submitting to Monday.com…';
   statusEl.style.display = 'block';
 
-  const phReadings = batch.data.phReadings || [];
-  const extraCitric = phReadings.filter(r => r.citricAdded).length;
-  const totalCitric = 1 + extraCitric;
-  const finalPh = batch.finalPh ? batch.finalPh.toFixed(2) : '';
-  const startDate = new Date(batch.startTime);
-  const dateStr = startDate.toISOString().split('T')[0];
-
-  // --- 1. Create item in Production Log board ---
-  const productionMutation = `
-    mutation {
-      create_item(
-        board_id: ${PRODUCTION_BOARD_ID},
-        item_name: "${batch.name}",
-        column_values: "${JSON.stringify({
-          text_1: batch.operator,
-          date: { date: dateStr },
-          numbers: parseFloat(finalPh) || 0,
-          numbers_1: 7,
-          numbers_2: totalCitric
-        }).replace(/"/g, '\\"')}"
-      ) { id }
-    }
-  `;
-
-  // --- 2. Create item in Biomass Batch Records board ---
-  const aldousMutation = `
-    mutation {
-      create_item(
-        board_id: ${ALDOUS_BOARD_ID},
-        item_name: "${batch.name}",
-        column_values: "${JSON.stringify({
-          text: batch.operator,
-          date4: { date: dateStr },
-          numbers: parseFloat(finalPh) || 0,
-          numbers9: 7,
-          numbers0: totalCitric
-        }).replace(/"/g, '\\"')}"
-      ) { id }
-    }
-  `;
-
-  async function gql(query) {
-    const res = await fetch(MONDAY_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': MONDAY_API_TOKEN,
-        'API-Version': '2024-01'
-      },
-      body: JSON.stringify({ query })
-    });
-    const json = await res.json();
-    if (json.errors) throw new Error(json.errors[0].message);
-    return json.data;
-  }
+  const retryBtn = document.getElementById('retryMondayBtn');
+  retryBtn.style.display = 'none';
 
   try {
-    // Submit both in parallel
-    const [prodResult, aldousResult] = await Promise.all([
-      gql(productionMutation),
-      gql(aldousMutation)
-    ]);
-
-    // --- 3. Deduct Supplies ---
-    // 3a. Find biomass item(s) in Vital Supplies
-    const biomassQuery = `
-      query {
-        boards(ids: [${VITAL_SUPPLIES_BOARD_ID}]) {
-          groups(ids: ["${VITAL_BIOMASS_GROUP}"]) {
-            items_page(limit: 50) {
-              items { id name column_values(ids: ["${VITAL_BOXES_COL}"]) { id value } }
-            }
-          }
-        }
+    // 1. Create Production Log item
+    const prodItemName = b.name;
+    const prodMutation = `
+      mutation {
+        create_item(
+          board_id: ${PRODUCTION_BOARD_ID},
+          item_name: ${JSON.stringify(prodItemName)},
+          column_values: ${JSON.stringify(JSON.stringify({
+            "text_mm16zyx9": b.operator,
+            "numeric_mm16v2kw": String(7),
+            "numeric_mm17dbg4": String(1 + b.citricBagsAdded),
+            "numeric_mm179a89": b.phReadings.length ? String(b.phReadings[b.phReadings.length-1]) : "",
+            "date4": { "date": new Date(b.startTime).toISOString().split('T')[0] }
+          }))}
+        ) { id }
       }
     `;
-    const citricQuery = `
-      query {
-        boards(ids: [${VITAL_SUPPLIES_BOARD_ID}]) {
-          groups(ids: ["${VITAL_CITRIC_GROUP}"]) {
-            items_page(limit: 50) {
-              items { id name column_values(ids: ["${VITAL_BAGS_COL}"]) { id value } }
-            }
-          }
-        }
+    await mondayRequest(prodMutation);
+
+    // 2. Create Aldous Batch Record item
+    const aldousMutation = `
+      mutation {
+        create_item(
+          board_id: ${ALDOUS_BOARD_ID},
+          item_name: ${JSON.stringify(b.name)},
+          column_values: ${JSON.stringify(JSON.stringify({
+            "text_mm16zyx9": b.operator,
+            "numeric_mm179a89": b.phReadings.length ? String(b.phReadings[b.phReadings.length-1]) : "",
+            "date4": { "date": new Date(b.startTime).toISOString().split('T')[0] }
+          }))}
+        ) { id }
       }
     `;
-
-    const [biomassData, citricData] = await Promise.all([
-      gql(biomassQuery),
-      gql(citricQuery)
-    ]);
-
-    const biomassItems = biomassData?.boards?.[0]?.groups?.[0]?.items_page?.items || [];
-    const citricItems = citricData?.boards?.[0]?.groups?.[0]?.items_page?.items || [];
-
-    const deductMutations = [];
-
-    // Deduct 7 boxes from first biomass item with enough stock
-    for (const item of biomassItems) {
-      const boxVal = parseFloat(item.column_values?.[0]?.value) || 0;
-      if (boxVal >= 7) {
-        deductMutations.push(gql(`
-          mutation {
-            change_column_value(
-              board_id: ${VITAL_SUPPLIES_BOARD_ID},
-              item_id: ${item.id},
-              column_id: "${VITAL_BOXES_COL}",
-              value: "${boxVal - 7}"
-            ) { id }
-          }
-        `));
-        break;
-      }
-    }
-
-    // Deduct citric bags from first citric item with enough stock
-    for (const item of citricItems) {
-      const bagVal = parseFloat(item.column_values?.[0]?.value) || 0;
-      if (bagVal >= totalCitric) {
-        deductMutations.push(gql(`
-          mutation {
-            change_column_value(
-              board_id: ${VITAL_SUPPLIES_BOARD_ID},
-              item_id: ${item.id},
-              column_id: "${VITAL_BAGS_COL}",
-              value: "${bagVal - totalCitric}"
-            ) { id }
-          }
-        `));
-        break;
-      }
-    }
-
-    if (deductMutations.length > 0) {
-      await Promise.all(deductMutations);
-    }
+    await mondayRequest(aldousMutation);
 
     statusEl.className = 'monday-status success';
-    statusEl.textContent = '✅ Submitted to Monday.com & inventory updated!';
-    return true;
-
-  } catch (err) {
-    console.error('Monday.com error:', err);
+    statusEl.textContent = '✓ Submitted to Monday.com successfully';
+  } catch(err) {
     statusEl.className = 'monday-status error';
-    statusEl.textContent = '⚠️ Monday.com submission failed: ' + err.message;
-    document.getElementById('retryMondayBtn').style.display = 'inline-flex';
-    return false;
+    statusEl.textContent = '✗ Monday.com submission failed: ' + (err.message || err);
+    retryBtn.style.display = 'inline-flex';
   }
 }
 
 async function retryMondaySubmit() {
-  document.getElementById('retryMondayBtn').style.display = 'none';
-  await submitToMonday(state.currentBatch);
+  if (state._lastCompleted) {
+    await submitToMonday(state._lastCompleted);
+  }
 }
 
-// ==================== COMPLETE BATCH ====================
-async function completeBatch() {
-  const btn = document.getElementById('completeBatchBtn');
-  btn.disabled = true;
-  btn.textContent = 'Submitting…';
+async function mondayRequest(query) {
+  const resp = await fetch(MONDAY_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': MONDAY_API_TOKEN,
+    },
+    body: JSON.stringify({ query }),
+  });
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  const data = await resp.json();
+  if (data.errors) throw new Error(data.errors.map(e=>e.message).join('; '));
+  return data;
+}
 
-  const batch = state.currentBatch;
-  batch.status = 'completed';
-  batch.endTime = new Date().toISOString();
+// ==================== SUPPLY DEDUCTION ====================
+async function deductSupplies(b) {
+  // Silently deduct biomass boxes and citric acid bags from Vital Supplies board.
+  // Errors are swallowed — supply tracking is best-effort.
+  try {
+    // ---- BIOMASS (7 boxes) ----
+    const biomassItems = await getVitalGroupItems(VITAL_BIOMASS_GROUP);
+    if (biomassItems.length) {
+      const item = biomassItems[0];
+      const currentBoxes = parseFloat(item.column_values.find(c=>c.id===VITAL_BOXES_COL)?.text || '0') || 0;
+      const newBoxes = Math.max(0, currentBoxes - 7);
+      await mondayRequest(`
+        mutation {
+          change_column_value(
+            board_id: ${VITAL_SUPPLIES_BOARD_ID},
+            item_id: ${item.id},
+            column_id: "${VITAL_BOXES_COL}",
+            value: "${newBoxes}"
+          ) { id }
+        }
+      `);
+    }
 
-  // Submit to Monday.com
-  await submitToMonday(batch);
+    // ---- CITRIC ACID (1 + extra bags) ----
+    const citricItems = await getVitalGroupItems(VITAL_CITRIC_GROUP);
+    if (citricItems.length) {
+      const item = citricItems[0];
+      const currentBags = parseFloat(item.column_values.find(c=>c.id===VITAL_BAGS_COL)?.text || '0') || 0;
+      const newBags = Math.max(0, currentBags - (1 + b.citricBagsAdded));
+      await mondayRequest(`
+        mutation {
+          change_column_value(
+            board_id: ${VITAL_SUPPLIES_BOARD_ID},
+            item_id: ${item.id},
+            column_id: "${VITAL_BAGS_COL}",
+            value: "${newBags}"
+          ) { id }
+        }
+      `);
+    }
+  } catch(_) {
+    // silent fail
+  }
+}
 
-  btn.textContent = '✓ Batch Completed';
-  document.getElementById('postCompleteActions').style.display = 'block';
-  state._lastCompleted = batch;
-  showToast('Batch ' + batch.name + ' completed!', 'success');
+async function getVitalGroupItems(groupId) {
+  const q = `
+    query {
+      boards(ids: [${VITAL_SUPPLIES_BOARD_ID}]) {
+        groups(ids: ["${groupId}"]) {
+          items_page(limit: 5) {
+            items {
+              id
+              column_values(ids: ["${VITAL_BOXES_COL}", "${VITAL_BAGS_COL}"]) {
+                id text
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+  const data = await mondayRequest(q);
+  return data?.data?.boards?.[0]?.groups?.[0]?.items_page?.items || [];
 }
 
 // ==================== CSV EXPORT ====================
 function exportCSV() {
   const b = state.currentBatch || state._lastCompleted;
-  if (!b) { showToast('No batch to export', 'error'); return; }
-
-  const phReadings = b.data.phReadings || [];
-  const extraCitric = phReadings.filter(r => r.citricAdded).length;
-
+  if (!b) return;
   const rows = [
     ['Field', 'Value'],
     ['Batch ID', b.name],
     ['Operator', b.operator],
-    ['Date', new Date(b.startTime).toLocaleDateString()],
-    ['Start Time', formatTime(new Date(b.startTime))],
-    ['End Time', b.endTime ? formatTime(new Date(b.endTime)) : ''],
-    ['Water Added (gal)', 500],
-    ['Biomass Loaded (boxes)', 7],
-    ['Initial Citric Bags', 1],
-    ['Extra Citric Bags', extraCitric],
-    ['Total Citric Bags', 1 + extraCitric],
-    ['Final pH', b.finalPh ? b.finalPh.toFixed(2) : ''],
+    ['Date', fmtDate(b.startTime)],
+    ['Start Time', fmtTime(b.startTime)],
+    ['End Time', b.endTime ? fmtTime(b.endTime) : ''],
+    ['Water Added', b.waterAdded],
+    ['Initial Citric Added', b.initialCitricAdded],
+    ['Additional Citric Bags', b.citricBagsAdded],
+    ['Total Citric Bags', 1 + b.citricBagsAdded],
+    ['Biomass Loaded', b.biomassLoaded],
+    ['pH Readings', b.phReadings.map(r=>r.toFixed(2)).join(' | ')],
+    ['Final pH', b.phReadings.length ? b.phReadings[b.phReadings.length-1].toFixed(2) : ''],
+    ['Pump Complete', b.pumpComplete],
     ['Status', b.status],
   ];
-
-  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = b.name + '-batch-record.csv';
+  a.href = URL.createObjectURL(blob);
+  a.download = b.name + '.csv';
   a.click();
-  URL.revokeObjectURL(url);
-  showToast('CSV downloaded!', 'success');
 }
 
-// ==================== DATE IN HEADER ====================
-function updateHeaderDate() {
-  const el = document.getElementById('headerDate');
-  if (!el) return;
-  const now = new Date();
-  el.textContent = now.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
-}
-updateHeaderDate();
-setInterval(updateHeaderDate, 60000);
-
-// ==================== AUTO-LOGIN FROM HUB OPERATOR IDENTITY ====================
+// ==================== INIT ====================
 (function() {
-  // Check if hub has passed an operator name (not a code) via localStorage
-  // Key: 'biomass_operator_name' — set by the hub before loading this page
-  const hubName = localStorage.getItem('biomass_operator_name');
-  if (hubName && Object.values(OPERATOR_CODES).includes(hubName)) {
-    state.operator = hubName;
-    document.getElementById('headerName').textContent = hubName;
-    document.getElementById('headerAvatar').textContent = hubName.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
+  const savedName = localStorage.getItem('operatorName');
+  if (savedName) {
+    autoLoginFromHub();
+    return;
+  }
+  document.getElementById('loginScreen').classList.add('active');
+  document.getElementById('appHeader').style.display = 'none';
+  updateDashboard();
+})();
+
+// Run auto-login check on page load
+(function autoLoginFromHub() {
+  const savedName = localStorage.getItem('operatorName');
+  if (savedName) {
+    state.operator = savedName;
+    document.getElementById('headerName').textContent = savedName;
+    document.getElementById('headerAvatar').textContent = savedName.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
     document.getElementById('operatorBadge').style.display = 'flex';
-    // Hide login screen, show dashboard
-    document.getElementById('loginScreen').classList.remove('active');
     showScreen('dashboardScreen');
     updateDashboard();
     // showToast intentionally omitted — silent auto-login
