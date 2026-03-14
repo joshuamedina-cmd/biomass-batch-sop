@@ -807,7 +807,7 @@
   <!-- ============================================================
        LOGIN SCREEN
   ============================================================ -->
-  <div class="login-screen" id="loginScreen" style="display:none!important">
+  <div class="login-screen active" id="loginScreen">
     <div class="login-card">
       <div class="login-logo">
         <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Biomass">
@@ -831,7 +831,7 @@
   <!-- ============================================================
        DASHBOARD
   ============================================================ -->
-  <div class="screen active" id="dashboardScreen">
+  <div class="screen" id="dashboardScreen">
     <div class="container">
       <div class="page-header-card">
         <h2>Dashboard</h2>
@@ -1149,6 +1149,11 @@ function updateDashboard() {
 
 // ==================== BATCH CREATION ====================
 function startNewBatch() {
+  if (!state.operator) {
+    showToast('Please log in first', 'error');
+    showScreen('loginScreen');
+    return;
+  }
   document.getElementById('completeBatchBtn').style.display = '';
   document.getElementById('completeBatchBtn').disabled = false;
   document.getElementById('postCompleteActions').style.display = 'none';
@@ -1651,9 +1656,6 @@ function exportCSV() {
   var name = null;
   try { name = localStorage.getItem('kmjz_operator_name'); } catch(e) {}
   if (name) {
-    if (typeof currentOperator !== 'undefined') currentOperator = name;
-    window._autoOperator = name;
-
     // Set the app state so batch creation works
     state.operator = name;
     state.batches = [];
@@ -1668,24 +1670,18 @@ function exportCSV() {
     if (nameEl) nameEl.textContent = name;
     if (badgeEl) badgeEl.style.display = 'flex';
     if (dateEl) dateEl.textContent = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  }
-  // Update operator badge/name elements (legacy)
-  var badge = document.getElementById('operatorName');
-  if (badge && name) badge.textContent = name;
-  // Hide login, show app
-  var login = document.getElementById('loginScreen');
-  if (login) login.style.display = 'none';
-  var app = document.getElementById('mainApp') || document.getElementById('appContent');
-  if (app) app.style.display = '';
-  // Show header if hidden
-  var header = document.getElementById('appHeader');
-  if (header) header.style.display = 'flex';
-  // Show dashboard
-  var dash = document.getElementById('dashboardScreen');
-  if (dash && name) {
-    dash.classList.add('active');
+
+    // Hide login screen, show dashboard
+    var loginEl = document.getElementById('loginScreen');
+    if (loginEl) loginEl.classList.remove('active');
+    var dashEl = document.getElementById('dashboardScreen');
+    if (dashEl) dashEl.classList.add('active');
+    var headerEl = document.getElementById('appHeader');
+    if (headerEl) headerEl.style.display = 'flex';
+
     if (typeof updateDashboard === 'function') updateDashboard();
   }
+  // If no name in localStorage, login screen stays visible (default state)
 })();
 </script>
 </body>
