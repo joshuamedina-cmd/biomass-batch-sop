@@ -816,15 +816,36 @@
         </svg>
       </div>
       <h1>Operator Check-In</h1>
-      <p>Enter your 4-digit operator code</p>
+      <p>Select your name</p>
       <div class="login-input-wrap">
-        <input type="password" id="operatorCode" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="0000" autofocus required>
-        <div class="login-hint">Auto-submits on 4 digits &bull; or press Enter</div>
+        <select id="operatorSelect" style="appearance:auto;-webkit-appearance:menulist;padding:12px;font-size:1rem;width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.1);color:#fff;">
+          <option value="" style="color:#333;">-- Choose Operator --</option>
+          <option value="Arturo" style="color:#333;">Arturo</option>
+          <option value="Bobby" style="color:#333;">Bobby</option>
+          <option value="Cris" style="color:#333;">Cris</option>
+          <option value="Dylan S" style="color:#333;">Dylan S</option>
+          <option value="Eli" style="color:#333;">Eli</option>
+          <option value="FernDawg" style="color:#333;">FernDawg</option>
+          <option value="Frank" style="color:#333;">Frank</option>
+          <option value="George" style="color:#333;">George</option>
+          <option value="George T" style="color:#333;">George T</option>
+          <option value="Jaime D" style="color:#333;">Jaime D</option>
+          <option value="Jaime P" style="color:#333;">Jaime P</option>
+          <option value="JDub" style="color:#333;">JDub</option>
+          <option value="Jeremy" style="color:#333;">Jeremy</option>
+          <option value="Josh" style="color:#333;">Josh</option>
+          <option value="KD" style="color:#333;">KD</option>
+          <option value="Laker" style="color:#333;">Laker</option>
+          <option value="Moh" style="color:#333;">Moh</option>
+          <option value="Q" style="color:#333;">Q</option>
+          <option value="Quentin" style="color:#333;">Quentin</option>
+          <option value="Sly" style="color:#333;">Sly</option>
+          <option value="Zee" style="color:#333;">Zee</option>
+        </select>
       </div>
       <div style="margin-top: 20px;">
-        <button class="btn btn-primary btn-block btn-lg" onclick="login()">Clock In</button>
+        <button class="btn btn-primary btn-block btn-lg" onclick="handleDropdownLogin()">Continue</button>
       </div>
-      <div id="loginError" style="color: var(--red); font-size: 14px; margin-top: 14px; text-align: center; display: none;"></div>
     </div>
   </div>
 
@@ -948,29 +969,6 @@ const VITAL_BAGS_COL = 'numeric_mm17bhbw';         // "Bags" number column
 
 
 
-// ==================== OPERATOR CODES ====================
-const OPERATOR_CODES = {
-  '4821': 'Josh',
-  '0420': 'Q',
-  '1911': 'Jaime D',
-  '4093': 'George',
-  '5150': 'Bobby',
-  '2008': 'Jaime P',
-  '6239': 'Sly',
-  '4444': 'Zee',
-  '3979': 'Dylan S',
-  '9034': 'JDub',
-  '8818': 'Cris',
-  '5463': 'Arturo',
-  '3847': 'Eli',
-  '0419': 'Laker',
-  '7117': 'FernDawg',
-  '0001': 'KD',
-  '1234': 'Moh',
-  '2691': 'Quentin',
-  '8305': 'George T',
-  '4629': 'Frank'
-};
 
 // ==================== STATE ====================
 let state = {
@@ -1070,17 +1068,10 @@ function fmtTime(dtStr) {
 }
 
 // ==================== AUTH ====================
-function login() {
-  const code = document.getElementById('operatorCode').value.trim();
-  const name = OPERATOR_CODES[code];
-  if (!name) {
-    const errEl = document.getElementById('loginError');
-    errEl.textContent = 'Invalid operator code. Please try again.';
-    errEl.style.display = 'block';
-    document.getElementById('operatorCode').value = '';
-    document.getElementById('operatorCode').focus();
-    return;
-  }
+function handleDropdownLogin() {
+  var sel = document.getElementById('operatorSelect');
+  var name = sel.value;
+  if (!name) return;
   state.operator = name;
   localStorage.setItem('operatorName', name);
   document.getElementById('headerName').textContent = name;
@@ -1120,13 +1111,6 @@ function autoLoginFromHub() {
   // If no name in localStorage, login screen stays visible (default state)
 }
 
-// Auto-submit login on 4-digit entry
-document.getElementById('operatorCode').addEventListener('input', function() {
-  if (this.value.length === 4) login();
-});
-document.getElementById('operatorCode').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') login();
-});
 
 // ==================== DASHBOARD ====================
 function updateDashboard() {
