@@ -1031,13 +1031,41 @@ function getDateString() {
   return String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0');
 }
 
-function generateBatchName() {
-  const dateStr = getDateString();
-  const initials = state.operator.split(' ').map(n => n[0]).join('').toUpperCase();
-  const prefix = initials + '.' + dateStr;
-  const todayCount = state.batches.filter(b => b.name.startsWith(prefix)).length;
-  const num = todayCount + 1;
-  return prefix + '.B' + num;
+async function getNextBatchNumber() {
+  // Query Monday.com board for ALL existing items across ALL groups.
+  // Uses cursor-based pagination to handle boards with >500 items.
+  let maxNum = 0;
+  const pattern = /^B(\d+)$/;
+
+  // First page
+  const firstQuery = `{ boards(ids: ${ALDOUS_BOARD_ID}) { items_page(limit: 500) { cursor items { name } } } }`;
+  const firstData = await mondayRequest(firstQuery);
+  const page = firstData.data.boards[0].items_page;
+  for (const item of page.items) {
+    const match = item.name.match(pattern);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
+  }
+
+  // Subsequent pages
+  let cursor = page.cursor;
+  while (cursor) {
+    const nextQuery = `{ next_items_page(limit: 500, cursor: ${JSON.stringify(cursor)}) { cursor items { name } } }`;
+    const nextData = await mondayRequest(nextQuery);
+    const nextPage = nextData.data.next_items_page;
+    for (const item of nextPage.items) {
+      const match = item.name.match(pattern);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    }
+    cursor = nextPage.cursor;
+  }
+
+  return 'B' + (maxNum + 1);
 }
 
 function showToast(msg, type='') {
@@ -1153,25 +1181,35 @@ function updateDashboard() {
 }
 
 // ==================== BATCH ====================
-function startNewBatch() {
-  state.currentBatch = {
-    name: generateBatchName(),
-    date: getDateString(),
-    startTime: new Date().toISOString(),
-    operator: state.operator,
-    waterAdded: false,
-    initialCitricAdded: false,
-    biomassLoaded: false,
-    phReadings: [],
-    citricBagsAdded: 0,
-    pumpComplete: false,
-    status: 'in-progress',
-  };
-  state.currentStep = 0;
-  state.batches.push(state.currentBatch);
-  document.getElementById('sopBatchName').textContent = state.currentBatch.name;
-  showScreen('sopScreen');
-  renderStep();
+async function startNewBatch() {
+  // Disable buttons and show loading state while fetching batch number
+  const btns = document.querySelectorAll('[onclick="startNewBatch()"]');
+  btns.forEach(b => { b.disabled = true; b.dataset.origText = b.textContent; b.textContent = 'Loading…'; });
+  try {
+    const batchName = await getNextBatchNumber();
+    state.currentBatch = {
+      name: batchName,
+      date: getDateString(),
+      startTime: new Date().toISOString(),
+      operator: state.operator,
+      waterAdded: false,
+      initialCitricAdded: false,
+      biomassLoaded: false,
+      phReadings: [],
+      citricBagsAdded: 0,
+      pumpComplete: false,
+      status: 'in-progress',
+    };
+    state.currentStep = 0;
+    state.batches.push(state.currentBatch);
+    document.getElementById('sopBatchName').textContent = state.currentBatch.name;
+    showScreen('sopScreen');
+    renderStep();
+  } catch(err) {
+    showToast('Failed to create batch: ' + (err.message || err), 'error');
+  } finally {
+    btns.forEach(b => { b.disabled = false; b.textContent = b.dataset.origText; });
+  }
 }
 
 function cancelBatch() {
